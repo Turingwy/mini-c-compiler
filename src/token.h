@@ -5,6 +5,7 @@
 
 enum token_type {
         identifier,
+        variable_type,
         keyword,        // like int while
         number,         // 1234
         real,           // 12.2
@@ -20,6 +21,8 @@ enum token_type {
         self_add, self_sub,    // ++, --
         add_assign, sub_assign, mul_assign, divi_assign, mod_assign,      // +=, -=, *=, /=, %=
         and, or, not  // &&, ||, !
+
+        ,token_end
 };
 
 typedef struct token {
@@ -28,7 +31,8 @@ typedef struct token {
 } token;
 
 
-token *look_token();
-token *next_token();
 
+token *look_token();
+void move_token();
+token *look_n_token(int n);
 #endif

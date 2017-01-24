@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "token.h"
 
 #define SOURCE_MAX_SIZE 1024*128
@@ -12,9 +13,9 @@ int token_length;
 int token_cursor;
 
 char *keyword_set[] = {
-    "char", "short", "int",  "long", "unsigned", "float", "double", 
+    "char", "short", "int",  "long", "float", "double", "void",
     "if", "else", "while", "for", "do", "continue", "break", "switch", "case",
-    "void", "return"
+     "return"
 };
 
 int finished[36];
@@ -141,7 +142,17 @@ void init_state_table() {
     finished[35] = 1;
 }
 
+enum token_type is_keyword(char *ident) {
+    for(int i = 0; i < sizeof(keyword_set)/sizeof(char *); i++) {
+        if(strcmp(ident, keyword_set[i]) == 0) {
+            if(i <= 6) 
+                return variable_type;
+            else return keyword;
+        }
 
+    }
+    return identifier;
+}
 
 
 int read_source(char *source_name) {
@@ -164,18 +175,22 @@ void move_char() {
     source_cursor++;    
 }
 
-token *next_token() {
-    if(token_cursor >= token_length)
-        return NULL;
-    else
-        return token_list[token_cursor++];
+void move_token() {
+    token_cursor++;
 }
 
 token *look_token() {
     if(token_cursor >= token_length)
-        return NULL;
+        return token_list[token_length];
     else 
         return token_list[token_cursor];
+}
+
+token *look_n_token(int n) {
+    if(token_cursor+n-1 >= token_length) {
+        return token_list[token_length];
+    } else
+        return token_list[token_cursor+n-1];
 }
 
 void insert_token(token *t) {
@@ -194,6 +209,8 @@ void generate_token(int type, int start) {
     token *t = (token *)malloc(sizeof(token));
     t->value[0] = 0;
     switch(type) {
+        case 0:
+            t->type = token_end; break;
         case -1:
             t->type = lp; break;
         case -2:
@@ -275,10 +292,14 @@ void generate_token(int type, int start) {
             create_token_value(t, start+1, source_cursor-2);
             break;
     }
-
+    
+    if(t->type == identifier) {
+        t->type = is_keyword(t->value);
+    }
     insert_token(t);
-
 }
+
+
 
 void error() {
     printf("error: lexical error\n");
@@ -293,6 +314,8 @@ void dfa() {
         if(c == EOF) {
             if(state < 0)
                 generate_token(state, start);
+
+            generate_token(0, 0);
             break;
         } else if((c == '\n' || c == ' ' || c == '\t') && state == 0) {
             move_char();
