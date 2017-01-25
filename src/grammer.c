@@ -1,10 +1,40 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "token.h"
 #include "util.h"
-void blocks();
-void exp();
 
+void block();
+void if_stmt();
+void rest_if();
+void read_source();
+void init_state_table();
+void _exp();
+void _term();
+void assign_stmt();
+void declaration();
+void declaration_varlist();
+void declarations();
+void e(enum token_type t, char *s);
+void expression();
+void expect(char *expt, char *got);
+void factor();
+void function();
+void gerror(char *mesg);
+void param();
+void params();
+void params_list();
+void parse_program();
+void rest_params();
+void rest_rparams();
+void rest_varlist();
+void rparams();
+void rparams_list();
+void stmt();
+void stmts();
+void term();
+void dfa();
+void while_stmt();
 void gerror(char *mesg) {
     puts(mesg);
     exit(-1);
@@ -74,14 +104,15 @@ void rest_varlist() {
 }
 
 /*
- * function -> rettype function_name(params) { stmts }
+ * function -> rettype function_name(params) blocks
  * rettype -> variable_type
  * function_name -> identifier
  * params -> params_list | ep
  * params_list -> param rest_params
  * rest_params -> ,params_list | ep
  * stmts -> ep | stmt stmts
- * stmt -> exp; | declaration | assgin_stmt;
+ * stmt -> exp; | declaration | assgin_stmt; | block | if_stmt | while_stmt
+ * blocks -> { stmts }
  * exp -> term _exp
  * _exp -> + term _exp | - term _exp | ep
  * term -> factor _term
@@ -90,8 +121,11 @@ void rest_varlist() {
  * rparams -> rparams_list | ep
  * rparams_list -> exp rest_rparams
  * rest_rparams -> ,rparams_list | ep
- * 
  * assgin_stmt -> id = exp | id += exp | id -= exp | id *= exp | id /= exp | id %= exp
+ * if_stmt -> if(exp) stmt rest_if
+ * rest_if -> ep | else stmt
+ * while_stmt -> while(exp) stmt
+ *
  */
 
 void e(enum token_type t, char *s) {
@@ -107,11 +141,14 @@ void function() {
     e(lp, "(");
     params();
     e(rp, ")");
+    block();
+}
+
+void block() {
     e(lb, "{");
     stmts();
     e(rb, "}");
 }
-
 void params() {
     if(look_token()->type != variable_type) 
         return;
@@ -138,7 +175,7 @@ void rest_params() {
 }
 
 void stmts() {
-    while(look_token()->type != rb)
+    while(look_token()->type != rb && look_token()->type != token_end)
         stmt();
 }
 
@@ -154,8 +191,14 @@ void stmt() {
 
     if(look_token()->type == variable_type) {
         declaration();
+    } else if(look_token()->type == lb) {
+        block();
+    } else if(strcmp(look_token()->value, "if") == 0)  {
+        if_stmt();
+    } else if(strcmp(look_token()->value, "while") == 0) {
+        while_stmt(); 
     } else {
-        exp();
+        expression();
         e(semi, ";");
     }
 }
@@ -163,10 +206,10 @@ void stmt() {
 void assign_stmt() {
     e(identifier, "identifier");
     move_token();
-    exp();
+    expression();
 }
 
-void exp() {
+void expression() {
     term();
     _exp();
 }
@@ -188,7 +231,7 @@ void _exp() {
 void factor() {
     if(look_token()->type == lp) {
         move_token();
-        exp();
+        expression();
         e(rp, ")");
     } else if(look_token()->type == identifier) {
         move_token();
@@ -220,7 +263,7 @@ void rparams() {
 }
 
 void rparams_list() {
-    exp();
+    expression();
     rest_rparams();
 }
 
@@ -232,7 +275,41 @@ void rest_rparams() {
 
 }
 
+void if_stmt() {
+    token *t = look_token();
+    if(strcmp(t->value, "if") == 0) {
+        move_token();
+        e(lp, "(");
+        expression();
+        e(rp, ")");
+        stmt();
+
+        rest_if();
+    }
+}
+
+void rest_if() {
+    token *t = look_token();
+    if(strcmp(t->value, "else") == 0) {
+        move_token();
+        stmt();
+    }
+}
+
+void while_stmt() {
+    token *t = look_token();
+    if(strcmp(t->value, "while") == 0) {
+        move_token();
+        e(lp, "(");
+        expression();
+        e(rp, ")");
+        stmt();
+    }
+}
+
 int main(int argc, char **argv) {
+    if(argc != 2)
+        printf("minic: Usage: minic [file].c\n");
     init_state_table();
     read_source(argv[1]);
     dfa();

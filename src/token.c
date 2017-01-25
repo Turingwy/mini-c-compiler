@@ -39,7 +39,7 @@ void init_state_table() {
         state_table[0][i] = 1;
     state_table[0]['_'] = 1;
 
-    for(int i = '1'; i <= '9'; i++)
+    for(int i = '0'; i <= '9'; i++)
         state_table[0][i] = 2;
     state_table[0]['&'] = 15;
     state_table[0]['|'] = 27;
