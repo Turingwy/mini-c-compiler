@@ -21,16 +21,19 @@ enum token_type {
         self_add, self_sub,    // ++, --
         add_assign, sub_assign, mul_assign, divi_assign, mod_assign,      // +=, -=, *=, /=, %=
         and, or, not  // &&, ||, !
-
         ,token_end
 };
+
+typedef struct token_loc {
+    int col;
+    int line;
+} token_loc;
 
 typedef struct token {
     enum token_type type;
     char value[TOKEN_VALUE_SIZE];
+    token_loc loc;
 } token;
-
-
 
 token *look_token();
 void move_token();

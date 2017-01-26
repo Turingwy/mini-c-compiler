@@ -5,6 +5,7 @@
 #include "util.h"
 
 void block();
+void print_tab();
 void if_stmt();
 void rest_if();
 void read_source();
@@ -35,19 +36,25 @@ void stmts();
 void term();
 void dfa();
 void while_stmt();
+void logical_exp();
+void and_exp();
+void _logical_exp();
+void comparison_exp();
+void _and_exp();
+void rest_factor();
+
 void gerror(char *mesg) {
-    puts(mesg);
     exit(-1);
 }
 
 void expect(char *expt, char *got) {
-    printf("error: expect %s but got \"%s\"\n", expt, got);
+    printf("error: expect %s but got \"%s\", line %d, col %d\n", expt, got, look_token()->loc.line, look_token()->loc.col);
     gerror("parsing progress has been terminated");
 }
 
 /*
  * declarations -> declaration declarations | declaration
- * or 
+ * or
  * declarations -> declaration restdecl
  * restdecl -> declarations | ep
  */
@@ -59,8 +66,8 @@ void parse_program() {
 
 void declarations() {
     do {
-        declaration();
-    } while(look_token()->type != token_end);
+          declaration();
+      } while (look_token()->type != token_end);
 }
 
 /*
@@ -72,19 +79,21 @@ void declarations() {
  */
 void declaration() {
     token *token = look_token();
-    if(token->type != variable_type)
+
+    if (token->type != variable_type)
         expect("variable type", token->value);
     move_token();
 
     declaration_varlist();
-    if(look_token()->type != semi)
+    if (look_token()->type != semi)
         expect(";", look_token()->value);
     move_token();
 }
 
 void declaration_varlist() {
     token *token = look_token();
-    if(token->type != identifier)
+
+    if (token->type != identifier)
         expect("identifier", token->value);
     move_token();
     rest_varlist();
@@ -92,14 +101,15 @@ void declaration_varlist() {
 
 void rest_varlist() {
     token *token = look_token();
-    if(token->type != comma)
+
+    if (token->type != comma)
         return;
     move_token();
     token = look_token();
-    if(token->type != identifier)
+    if (token->type != identifier)
         expect("identifier", token->value);
     move_token();
-    
+
     rest_varlist();
 }
 
@@ -113,11 +123,17 @@ void rest_varlist() {
  * stmts -> ep | stmt stmts
  * stmt -> exp; | declaration | assgin_stmt; | block | if_stmt | while_stmt
  * blocks -> { stmts }
+ * logical_exp -> and_exp _logical_exp
+ * _logical_exp -> || and_exp _logical_exp | ep
+ * and_exp -> comparison_exp _and_exp
+ * _and_exp -> && comparison_exp _and_exp | ep
+ * comparison_exp -> exp == exp | exp != exp | exp >= exp | exp <= exp | exp > exp | exp < exp | exp
  * exp -> term _exp
  * _exp -> + term _exp | - term _exp | ep
  * term -> factor _term
  * _term -> * factor _term | / factor _term | ep
- * factor -> (exp) | identifier | identifier(rparams)
+ * factor -> (exp) | identifier rest_factor | ++identifier | --identifier | string | single_char
+ * rest_factor -> ep | ++ | -- | (rparams)
  * rparams -> rparams_list | ep
  * rparams_list -> exp rest_rparams
  * rest_rparams -> ,rparams_list | ep
@@ -129,9 +145,8 @@ void rest_varlist() {
  */
 
 void e(enum token_type t, char *s) {
-    if(look_token()->type != t)
+    if (look_token()->type != t)
         expect(s, look_token()->value);
-
     move_token();
 }
 
@@ -149,10 +164,11 @@ void block() {
     stmts();
     e(rb, "}");
 }
+
 void params() {
-    if(look_token()->type != variable_type) 
+    if (look_token()->type != variable_type)
         return;
-    
+
     params_list();
 }
 
@@ -167,7 +183,7 @@ void param() {
 }
 
 void rest_params() {
-    if(look_token()->type != comma) 
+    if (look_token()->type != comma)
         return;
 
     move_token();
@@ -175,32 +191,34 @@ void rest_params() {
 }
 
 void stmts() {
-    while(look_token()->type != rb && look_token()->type != token_end)
-        stmt();
+    while (look_token()->type != rb && look_token()->type != token_end) {
+          stmt();
+      }
 }
 
 void stmt() {
-    enum token_type assign_types[] = {assign, add_assign, sub_assign, mul_assign, divi_assign};
-    for(int i = 0; i < array_length(assign_types); i++) {
-        if(look_n_token(2)->type == assign_types[i]) {
-            assign_stmt();
-            e(semi, ";");
-            return;
-        }
-    }
+    enum token_type assign_types[] = { assign, add_assign, sub_assign, mul_assign, divi_assign };
 
-    if(look_token()->type == variable_type) {
-        declaration();
-    } else if(look_token()->type == lb) {
-        block();
-    } else if(strcmp(look_token()->value, "if") == 0)  {
-        if_stmt();
-    } else if(strcmp(look_token()->value, "while") == 0) {
-        while_stmt(); 
-    } else {
-        expression();
-        e(semi, ";");
-    }
+    for (int i = 0; i < array_length(assign_types); i++) {
+          if (look_n_token(2)->type == assign_types[i]) {
+                assign_stmt();
+                e(semi, ";");
+                return;
+            }
+      }
+
+    if (look_token()->type == variable_type) {
+          declaration();
+      } else if (look_token()->type == lb) {
+          block();
+      } else if (strcmp(look_token()->value, "if") == 0) {
+          if_stmt();
+      } else if (strcmp(look_token()->value, "while") == 0) {
+          while_stmt();
+      } else {
+          logical_exp();
+          e(semi, ";");
+      }
 }
 
 void assign_stmt() {
@@ -219,47 +237,77 @@ void term() {
     _term();
 }
 void _exp() {
-    if(look_token()->type == add || look_token()->type == sub) {
-        move_token();
-        term();
-        _exp();
-    } else if(look_token()->type != semi && look_token()->type != rp && look_token()->type != comma) {
-        expect("+ or -", look_token()->value);
-    }
+    enum token_type type = look_token()->type;
+
+    if (type == add || type == sub) {
+          move_token();
+          term();
+          _exp();
+      } else if (type != semi && type != rp && type != comma
+                 && type != and && type != or && type != equal && type != nequal && type != lt && type != gt && type != let && type != get
+                 ) {
+          expect("+ or -", look_token()->value);
+      }
 }
 
 void factor() {
-    if(look_token()->type == lp) {
-        move_token();
-        expression();
-        e(rp, ")");
-    } else if(look_token()->type == identifier) {
-        move_token();
-        if(look_token()->type == lp) {
-            move_token();
-            rparams();
-            e(rp, ")");
-        }
-    } else if(look_token()->type == number) {
-        move_token();
-    }
+    if (look_token()->type == lp) {
+          move_token();
+          logical_exp();
+          e(rp, ")");
+      } else if (look_token()->type == identifier) {
+          move_token();
+          rest_factor();
+      }else if (look_token()->type == number) {
+          move_token();
+      } else if (look_token()->type == string) {
+          move_token();
+      } else if (look_token()->type == self_add || look_token()->type == self_sub) {
+          move_token();
+          e(identifier, "identifier");
+      } else {
+          expect("factor", look_token()->value);
+      }
 }
+
+void rest_factor() {
+    enum token_type type = look_token()->type;
+
+    switch (type) {
+      case self_add:
+      case self_sub:
+          move_token(); break;
+
+      case lp:
+          move_token();
+          rparams();
+          e(rp, ")");
+          break;
+
+      default:
+          break;
+      }
+}
+
 void _term() {
     enum token_type type = look_token()->type;
-    if(type == mul || type == divi) {
-        move_token();
-        factor();
-        _term();
-    } else if(type != semi && type != add && type != sub && type != comma && type != rp) {
-        expect("operator", look_token()->value);
-    }
+
+    if (type == mul || type == divi) {
+          move_token();
+          factor();
+          _term();
+      } else if (type != semi && type != add && type != sub && type != comma && type != rp
+                 && type != and && type != or && type != equal && type != nequal && type != lt && type != gt && type != let && type != get) {
+          expect("operator", look_token()->value);
+      }
 }
 
 void rparams() {
     enum token_type type = look_token()->type;
-    if(type == lp || type == identifier || type == number) {
-        rparams_list();
-    } 
+
+    if (type != rp) {
+          rparams_list();
+      }
 }
 
 void rparams_list() {
@@ -268,47 +316,89 @@ void rparams_list() {
 }
 
 void rest_rparams() {
-    if(look_token()->type == comma) {
-        move_token();
-        rparams_list();
-    }
-
+    if (look_token()->type == comma) {
+          move_token();
+          rparams_list();
+      }
 }
 
 void if_stmt() {
     token *t = look_token();
-    if(strcmp(t->value, "if") == 0) {
-        move_token();
-        e(lp, "(");
-        expression();
-        e(rp, ")");
-        stmt();
 
-        rest_if();
-    }
+    if (strcmp(t->value, "if") == 0) {
+          move_token();
+          e(lp, "(");
+          logical_exp();
+          e(rp, ")");
+          stmt();
+          rest_if();
+      }
 }
 
 void rest_if() {
     token *t = look_token();
-    if(strcmp(t->value, "else") == 0) {
-        move_token();
-        stmt();
-    }
+
+    if (strcmp(t->value, "else") == 0) {
+          move_token();
+          stmt();
+      }
 }
 
 void while_stmt() {
     token *t = look_token();
-    if(strcmp(t->value, "while") == 0) {
-        move_token();
-        e(lp, "(");
-        expression();
-        e(rp, ")");
-        stmt();
-    }
+
+    if (strcmp(t->value, "while") == 0) {
+          move_token();
+          e(lp, "(");
+          logical_exp();
+          e(rp, ")");
+          stmt();
+      }
+}
+
+void comparision_exp() {
+    expression();
+    token *token = look_token();
+    enum token_type cprs_symbols[] = { equal, lt, gt, let, get, nequal };
+
+    for (size_t i = 0; i < 6; i++) {
+          if (cprs_symbols[i] == token->type) {
+                move_token();
+                expression();
+                return;
+            }
+      }
+}
+
+void logical_exp() {
+    and_exp();
+    _logical_exp();
+}
+
+void _logical_exp() {
+    if (look_token()->type != or)
+        return;
+    e(or, "||");
+    and_exp();
+    _logical_exp();
+}
+
+void and_exp() {
+    comparision_exp();
+    _and_exp();
+}
+
+void _and_exp() {
+    if (look_token()->type != and) {
+          return;
+      }
+    e(and, "&&");
+    comparision_exp();
+    _and_exp();
 }
 
 int main(int argc, char **argv) {
-    if(argc != 2)
+    if (argc != 2)
         printf("minic: Usage: minic [file].c\n");
     init_state_table();
     read_source(argv[1]);
@@ -316,5 +406,3 @@ int main(int argc, char **argv) {
     parse_program();
     puts("success");
 }
-
-
