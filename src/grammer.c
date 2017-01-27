@@ -2,24 +2,27 @@
 #include <stdlib.h>
 #include <string.h>
 #include "token.h"
+#include "symbol.h"
 #include "util.h"
 
 void block();
 void print_tab();
 void if_stmt();
 void rest_if();
+void _block();
 void read_source();
 void init_state_table();
-void _exp();
-void _term();
+enum id_type _exp();
+enum id_type _term();
 void assign_stmt();
 void declaration();
 void declaration_varlist();
 void declarations();
 void e(enum token_type t, char *s);
-void expression();
+void type_error();
+enum id_type expression();
 void expect(char *expt, char *got);
-void factor();
+enum id_type factor();
 void function();
 void gerror(char *mesg);
 void param();
@@ -33,23 +36,41 @@ void rparams();
 void rparams_list();
 void stmt();
 void stmts();
-void term();
+enum id_type term();
 void dfa();
 void while_stmt();
-void logical_exp();
-void and_exp();
-void _logical_exp();
-void comparison_exp();
-void _and_exp();
+enum id_type logical_exp();
+enum id_type and_exp();
+enum id_type _logical_exp();
+enum id_type comparision_exp();
+enum id_type _and_exp();
 void rest_factor();
 
 void gerror(char *mesg) {
+    puts(mesg);
     exit(-1);
 }
 
 void expect(char *expt, char *got) {
     printf("error: expect %s but got \"%s\", line %d, col %d\n", expt, got, look_token()->loc.line, look_token()->loc.col);
     gerror("parsing progress has been terminated");
+}
+
+enum id_type getType(token *t) {
+    switch(t->value[0]) {
+        case 'i':
+            return id_int;
+        case 'c':
+            return id_char;
+        case 's':
+            return id_short;
+        case 'l':
+            return id_long;
+        case 'f':
+            return id_float;
+        default:
+            return id_err;
+    }
 }
 
 /*
@@ -60,7 +81,9 @@ void expect(char *expt, char *got) {
  */
 
 void parse_program() {
+    create_symbol_table();
     function();
+    destory_symbol_table();
 }
 
 
@@ -83,34 +106,42 @@ void declaration() {
     if (token->type != variable_type)
         expect("variable type", token->value);
     move_token();
-
-    declaration_varlist();
+    enum id_type type = getType(token);
+     
+    declaration_varlist(type);
     if (look_token()->type != semi)
         expect(";", look_token()->value);
     move_token();
 }
 
-void declaration_varlist() {
+void declaration_varlist(enum id_type type) {
     token *token = look_token();
 
     if (token->type != identifier)
         expect("identifier", token->value);
+    if(hash_search(token) != id_err) 
+        type_error();
+    hash_input(token, type);
     move_token();
-    rest_varlist();
+    rest_varlist(type);
 }
 
-void rest_varlist() {
+void rest_varlist(enum id_type type) {
     token *token = look_token();
 
     if (token->type != comma)
         return;
+
     move_token();
     token = look_token();
     if (token->type != identifier)
         expect("identifier", token->value);
+    if(hash_search(token) != id_err) 
+        type_error();
+    hash_input(token, type);
     move_token();
 
-    rest_varlist();
+    rest_varlist(type);
 }
 
 /*
@@ -151,15 +182,23 @@ void e(enum token_type t, char *s) {
 }
 
 void function() {
+    create_symbol_table();
     e(variable_type, "variable type");
     e(identifier, "identifier");
     e(lp, "(");
     params();
     e(rp, ")");
-    block();
+    _block();
+    destory_symbol_table();
 }
 
 void block() {
+    create_symbol_table();
+    _block();
+    destory_symbol_table();
+}
+
+void _block() {
     e(lb, "{");
     stmts();
     e(rb, "}");
@@ -178,8 +217,12 @@ void params_list() {
 }
 
 void param() {
+    token *t = look_token(); 
     e(variable_type, "variable type");
+    enum id_type type = getType(t);
+    t = look_token();
     e(identifier, "parameter");
+    hash_input(t, type);
 }
 
 void rest_params() {
@@ -221,50 +264,90 @@ void stmt() {
       }
 }
 
+void type_error() {
+    gerror("type error");
+}
+
 void assign_stmt() {
+    token *t = look_token();
     e(identifier, "identifier");
+    enum id_type type = hash_search(t);
+    if(type == id_err)
+       type_error(); 
     move_token();
-    expression();
+    if(logical_exp(type) > type)
+        type_error();
 }
 
-void expression() {
-    term();
-    _exp();
+enum id_type arith_type(enum id_type left_type, enum id_type right_type) {
+    if(left_type == id_err || right_type == id_err)
+        return id_err;
+    enum id_type max_type;
+    if(left_type != id_float && right_type != id_float) {
+        max_type = left_type > right_type ? left_type : right_type;
+        if(max_type != id_long)
+            return id_int;
+        else
+            return id_long;
+    } else
+        return id_float;
+
 }
 
-void term() {
-    factor();
-    _term();
+
+enum id_type expression() {
+    enum id_type left_type = term();
+    enum id_type right_type = _exp();
+    return arith_type(left_type, right_type);
 }
-void _exp() {
+
+enum id_type term() {
+    enum id_type left_type = factor();
+    enum id_type right_type = _term();
+    enum id_type type = arith_type(left_type, right_type);
+    return type;
+}
+
+enum id_type _exp() {
     enum token_type type = look_token()->type;
-
     if (type == add || type == sub) {
           move_token();
-          term();
-          _exp();
+          enum id_type lt = term();
+          return arith_type(lt, _exp());
       } else if (type != semi && type != rp && type != comma
                  && type != and && type != or && type != equal && type != nequal && type != lt && type != gt && type != let && type != get
                  ) {
           expect("+ or -", look_token()->value);
       }
+    return id_nul;
 }
 
-void factor() {
+enum id_type factor() {
     if (look_token()->type == lp) {
           move_token();
-          logical_exp();
+          enum id_type type = logical_exp();
           e(rp, ")");
-      } else if (look_token()->type == identifier) {
+          return type;
+      } else if (look_token()->type == identifier) {        // TODO: function return type
+          enum id_type type = hash_search(look_token());
+          if(type == id_err)
+              type_error();
           move_token();
           rest_factor();
+          return type;
       }else if (look_token()->type == number) {
           move_token();
-      } else if (look_token()->type == string) {
+          return id_int;
+      } /*else if (look_token()->type == string) {
           move_token();
-      } else if (look_token()->type == self_add || look_token()->type == self_sub) {
+      }*/
+        else if (look_token()->type == self_add || look_token()->type == self_sub) {
           move_token();
+          enum id_type type = hash_search(look_token());
+          if(type == id_err)
+              type_error();
           e(identifier, "identifier");
+          return type;
       } else {
           expect("factor", look_token()->value);
       }
@@ -289,22 +372,24 @@ void rest_factor() {
       }
 }
 
-void _term() {
+enum id_type _term() {
     enum token_type type = look_token()->type;
 
     if (type == mul || type == divi) {
           move_token();
-          factor();
-          _term();
+          enum id_type left_type = factor();
+          enum id_type right_type = _term();
+          return arith_type(left_type, right_type);
       } else if (type != semi && type != add && type != sub && type != comma && type != rp
                  && type != and && type != or && type != equal && type != nequal && type != lt && type != gt && type != let && type != get) {
           expect("operator", look_token()->value);
       }
+    return id_nul;
 }
 
 void rparams() {
     enum token_type type = look_token()->type;
-
+    
     if (type != rp) {
           rparams_list();
       }
@@ -328,9 +413,16 @@ void if_stmt() {
     if (strcmp(t->value, "if") == 0) {
           move_token();
           e(lp, "(");
-          logical_exp();
+          if(logical_exp() == id_nul)
+              type_error();
           e(rp, ")");
-          stmt();
+          if(look_token()->type == lb) {
+            block();
+          } else {
+              create_symbol_table();
+              stmt();
+              destory_symbol_table();
+          }
           rest_if();
       }
 }
@@ -356,45 +448,45 @@ void while_stmt() {
       }
 }
 
-void comparision_exp() {
-    expression();
+enum id_type comparision_exp() {
+    enum id_type left_type = expression();
     token *token = look_token();
     enum token_type cprs_symbols[] = { equal, lt, gt, let, get, nequal };
 
     for (size_t i = 0; i < 6; i++) {
           if (cprs_symbols[i] == token->type) {
                 move_token();
-                expression();
-                return;
+                return arith_type(left_type, expression());
             }
       }
+    return left_type;
 }
 
-void logical_exp() {
-    and_exp();
-    _logical_exp();
+enum id_type logical_exp() {
+    enum id_type lt = and_exp();
+    return arith_type(lt, _logical_exp());
 }
 
-void _logical_exp() {
+enum id_type _logical_exp() {
     if (look_token()->type != or)
-        return;
+        return id_nul;
     e(or, "||");
-    and_exp();
-    _logical_exp();
+    enum id_type lt = and_exp();
+    return arith_type(lt, _logical_exp());
 }
 
-void and_exp() {
-    comparision_exp();
-    _and_exp();
+enum id_type and_exp() {
+    enum id_type lt = comparision_exp();
+    return arith_type(lt, _and_exp());
 }
 
-void _and_exp() {
+enum id_type _and_exp() {
     if (look_token()->type != and) {
-          return;
+          return id_nul;
       }
     e(and, "&&");
-    comparision_exp();
-    _and_exp();
+    enum id_type lt = comparision_exp();
+    return arith_type(lt,_and_exp());
 }
 
 int main(int argc, char **argv) {
