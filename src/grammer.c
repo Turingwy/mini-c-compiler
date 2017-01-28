@@ -4,6 +4,7 @@
 #include "token.h"
 #include "symbol.h"
 #include "util.h"
+#include "ast.h"
 
 void block();
 void print_tab();
@@ -14,7 +15,7 @@ void read_source();
 void init_state_table();
 enum id_type _exp();
 enum id_type _term();
-void assign_stmt();
+ast_node *assign_stmt();
 void declaration();
 void declaration_varlist();
 void declarations();
@@ -80,10 +81,13 @@ enum id_type getType(token *t) {
  * restdecl -> declarations | ep
  */
 
-void parse_program() {
+ast_program *parse_program() {
+    ast_program *syn = (ast_program *)malloc(sizeof(ast_program));
+    syn->type = ast_type_program;
     create_symbol_table();
-    function();
+    syn->func = function();
     destory_symbol_table();
+    return syn;
 }
 
 
@@ -181,27 +185,34 @@ void e(enum token_type t, char *s) {
     move_token();
 }
 
-void function() {
+ast_node *function() {
+    ast_function *syn = (ast_function *)malloc(sizeof(ast_function));
+    syn->type = ast_type_function;
     create_symbol_table();
+    syn->rettype = getType(look_token());
     e(variable_type, "variable type");
     e(identifier, "identifier");
     e(lp, "(");
     params();
     e(rp, ")");
-    _block();
+    syn->block_seq = _block();
     destory_symbol_table();
+    return (ast_node *)syn;
 }
 
-void block() {
+ast_node *block() {
+    ast_node *syn;
     create_symbol_table();
-    _block();
+    syn = _block();
     destory_symbol_table();
+    return syn;
 }
 
-void _block() {
+ast_node *_block() {
     e(lb, "{");
-    stmts();
+    ast_node *syn = stmts();
     e(rb, "}");
+    return syn;
 }
 
 void params() {
@@ -233,34 +244,41 @@ void rest_params() {
     params_list();
 }
 
-void stmts() {
-    while (look_token()->type != rb && look_token()->type != token_end) {
-          stmt();
-      }
+ast_node *stmts() {
+    if(look_token()->type == rb || look_token()->type == token_end)
+        return NULL;
+    ast_seq *syn = (ast_seq *)malloc(sizeof(ast_seq));
+    syn->type = ast_type_seq;
+    syn->stmt = stmt();
+    syn->rest = stmts();
+    return (ast_node *)syn;
+
 }
 
-void stmt() {
+ast_node *stmt() {
     enum token_type assign_types[] = { assign, add_assign, sub_assign, mul_assign, divi_assign };
 
     for (int i = 0; i < array_length(assign_types); i++) {
           if (look_n_token(2)->type == assign_types[i]) {
-                assign_stmt();
+                ast_node *syn = assign_stmt();
                 e(semi, ";");
-                return;
+                return syn;
             }
       }
 
     if (look_token()->type == variable_type) {
           declaration();
       } else if (look_token()->type == lb) {
-          block();
+          return block();
       } else if (strcmp(look_token()->value, "if") == 0) {
-          if_stmt();
+          return if_stmt();
       } else if (strcmp(look_token()->value, "while") == 0) {
-          while_stmt();
+          return while_stmt();
       } else {
-          logical_exp();
+          ast_node *node = NULL;
+          logical_exp(&node);
           e(semi, ";");
+          return node;
       }
 }
 
@@ -268,14 +286,19 @@ void type_error() {
     gerror("type error");
 }
 
-void assign_stmt() {
+ast_node *assign_stmt() {
+    ast_assign *syn = (ast_assign *)malloc(sizeof(ast_assign));
+    syn->type = ast_type_assign;
     token *t = look_token();
+    syn->id = (ast_node *)malloc(sizeof(ast_id));
+    ast_id *id = (ast_id *)syn->id;
+    id->type = ast_type_id;
     e(identifier, "identifier");
-    enum id_type type = hash_search(t);
-    if(type == id_err)
+    id->id_symbol = symbol_search(t);
+    if(id->id_symbol == NULL)
        type_error(); 
     move_token();
-    if(logical_exp(type) > type)
+    if(logical_exp(&(syn->exp)) > id->id_symbol->type)
         type_error();
 }
 
@@ -295,47 +318,63 @@ enum id_type arith_type(enum id_type left_type, enum id_type right_type) {
 }
 
 
-enum id_type expression() {
-    enum id_type left_type = term();
-    enum id_type right_type = _exp();
+enum id_type expression(ast_node **node) {
+    ast_exp *left = NULL;
+    enum id_type left_type = term(&left);
+    enum id_type right_type = _exp(left, node);
     return arith_type(left_type, right_type);
 }
 
-enum id_type term() {
-    enum id_type left_type = factor();
-    enum id_type right_type = _term();
-    enum id_type type = arith_type(left_type, right_type);
-    return type;
+enum id_type term(ast_node **node) {
+    ast_exp *left = NULL;
+    enum id_type left_type = factor(&left);
+    enum id_type right_type = _term(left, node);
+    return arith_type(left_type, right_type);
 }
 
-enum id_type _exp() {
+enum id_type _exp(ast_node *left, ast_node **node) {
     enum token_type type = look_token()->type;
     if (type == add || type == sub) {
           move_token();
-          enum id_type lt = term();
-          return arith_type(lt, _exp());
+          ast_exp *as = (ast_exp *)malloc(sizeof(ast_exp));
+          if(type == add)
+              as->type = ast_type_add;
+          else
+              as->type = ast_type_sub;
+
+          as->left = left;
+          enum id_type lt = term(&(as->right));
+          return arith_type(lt, _exp((ast_node *)as, node));
       } else if (type != semi && type != rp && type != comma
                  && type != and && type != or && type != equal && type != nequal && type != lt && type != gt && type != let && type != get
                  ) {
           expect("+ or -", look_token()->value);
       }
+    *node = left;
     return id_nul;
 }
 
-enum id_type factor() {
+enum id_type factor(ast_node **node) {
     if (look_token()->type == lp) {
           move_token();
-          enum id_type type = logical_exp();
+          enum id_type type = logical_exp(node);
           e(rp, ")");
           return type;
       } else if (look_token()->type == identifier) {        // TODO: function return type
           enum id_type type = hash_search(look_token());
           if(type == id_err)
               type_error();
+          ast_id *id = (ast_id *)malloc(sizeof(ast_id));
+          id->type = ast_type_id;
+          id->id_symbol = symbol_search(look_token());
           move_token();
-          rest_factor();
+          rest_factor(id, node);
           return type;
       }else if (look_token()->type == number) {
+          ast_num *num = (ast_num *)malloc(sizeof(ast_num));
+          num->type = ast_type_num;
+          strcpy(num->value, look_token()->value);
+          *node = (ast_node *)num;
           move_token();
           return id_int;
       } /*else if (look_token()->type == string) {
@@ -343,9 +382,19 @@ enum id_type factor() {
       }*/
         else if (look_token()->type == self_add || look_token()->type == self_sub) {
           move_token();
+          ast_self_op *self = (ast_self_op *)malloc(sizeof(ast_self_op));
+          self->first = 1;
+          if(look_token()->type == self_add)
+              self->type = ast_type_self_add;
+          else 
+              self->type = ast_type_self_sub;
           enum id_type type = hash_search(look_token());
           if(type == id_err)
               type_error();
+          self->id = (ast_id *)malloc(sizeof(ast_id));
+          self->id->id_symbol = symbol_search(look_token());
+          self->id->type = ast_type_id;
+          *node = (ast_node *)self;
           e(identifier, "identifier");
           return type;
       } else {
@@ -353,37 +402,55 @@ enum id_type factor() {
       }
 }
 
-void rest_factor() {
+void rest_factor(ast_id *id, ast_node **node) {
     enum token_type type = look_token()->type;
-
+    ast_self_op *self = (ast_self_op *)malloc(sizeof(ast_self_op));
     switch (type) {
       case self_add:
+          self->id = id;
+          self->first = 0;
+          self->type = ast_type_self_add;
+          *node = (ast_node *)self;
+          move_token();
+          break;
       case self_sub:
+          self->id = id;
+          self->first = 0;
+          self->type = ast_type_self_sub;
+          *node = (ast_node *)self;
           move_token(); break;
 
-      case lp:
+      case lp:          // symbol table and tree TODO
           move_token();
           rparams();
           e(rp, ")");
           break;
 
       default:
+          *node = (ast_node *)id;
           break;
       }
 }
 
-enum id_type _term() {
+enum id_type _term(ast_node *left, ast_node **node) {
     enum token_type type = look_token()->type;
 
     if (type == mul || type == divi) {
           move_token();
-          enum id_type left_type = factor();
-          enum id_type right_type = _term();
+          ast_exp *md = (ast_exp *)malloc(sizeof(ast_exp));
+          if(type == mul)
+              md->type = ast_type_mul;
+          else
+              md->type = ast_type_divi;
+          md->left = left;
+          enum id_type left_type = factor(&(md->right));
+          enum id_type right_type = _term((ast_node *)md, node);
           return arith_type(left_type, right_type);
       } else if (type != semi && type != add && type != sub && type != comma && type != rp
                  && type != and && type != or && type != equal && type != nequal && type != lt && type != gt && type != let && type != get) {
           expect("operator", look_token()->value);
       }
+    *node = left;
     return id_nul;
 }
 
@@ -448,45 +515,87 @@ void while_stmt() {
       }
 }
 
-enum id_type comparision_exp() {
-    enum id_type left_type = expression();
+enum id_type comparision_exp(ast_node **node) {
+    ast_node *left = NULL, *right = NULL;
+    enum id_type left_type = expression(&left);
     token *token = look_token();
     enum token_type cprs_symbols[] = { equal, lt, gt, let, get, nequal };
 
     for (size_t i = 0; i < 6; i++) {
           if (cprs_symbols[i] == token->type) {
                 move_token();
-                return arith_type(left_type, expression());
+                enum id_type rettype = arith_type(left_type, expression(&right));
+                ast_exp *cprs_exp = (ast_exp *)malloc(sizeof(ast_exp));
+                cprs_exp->left = left;
+                cprs_exp->right = right;
+                switch (cprs_symbols[i]) {
+                    case equal:
+                        cprs_exp->type = ast_type_equal;
+                        break;
+                    case lt:
+                        cprs_exp->type = ast_type_lt;
+                        break;
+                    case gt:
+                        cprs_exp->type = ast_type_gt;
+                        break;
+                    case let:
+                        cprs_exp->type = ast_type_let;
+                        break;
+                    case get:
+                        cprs_exp->type = ast_type_get;
+                        break;
+                    case nequal:
+                        cprs_exp->type = ast_type_nequal;
+                        break;
+                }
+                *node = cprs_exp;
+                return rettype;
             }
       }
+    *node = left;
     return left_type;
 }
 
-enum id_type logical_exp() {
-    enum id_type lt = and_exp();
-    return arith_type(lt, _logical_exp());
+enum id_type logical_exp(ast_node **node) {
+    ast_node *node1 = NULL;
+    enum id_type lt = and_exp(&node1);
+    enum id_type rettype = arith_type(lt, _logical_exp(node1, node));
+     
+    return rettype;
 }
 
-enum id_type _logical_exp() {
-    if (look_token()->type != or)
+enum id_type _logical_exp(ast_node *first, ast_node **node) {
+    if (look_token()->type != or) {
+        *node = first;
         return id_nul;
+    }
     e(or, "||");
-    enum id_type lt = and_exp();
-    return arith_type(lt, _logical_exp());
+    ast_exp *or = (ast_exp *)malloc(sizeof(ast_exp));
+    or->type = ast_type_or;
+    or->left = first;
+    enum id_type lt = and_exp(&(or->right));
+
+    return arith_type(lt, _logical_exp((ast_node *)or, node));
+
 }
 
-enum id_type and_exp() {
-    enum id_type lt = comparision_exp();
-    return arith_type(lt, _and_exp());
+enum id_type and_exp(ast_node **node) {
+    ast_node *left = NULL;
+    enum id_type lt = comparision_exp(&left);
+    return arith_type(lt, _and_exp(left, node));
 }
 
-enum id_type _and_exp() {
+enum id_type _and_exp(ast_node *left, ast_node **node) {
     if (look_token()->type != and) {
+          *node = left;
           return id_nul;
       }
     e(and, "&&");
-    enum id_type lt = comparision_exp();
-    return arith_type(lt,_and_exp());
+    ast_exp *and = (ast_exp *)malloc(sizeof(ast_exp));
+    and->type = ast_type_and;
+    and->left = left;
+    enum id_type lt = comparision_exp(&(and->right));
+    return arith_type(lt,_and_exp((ast_node *)and, node));
 }
 
 int main(int argc, char **argv) {

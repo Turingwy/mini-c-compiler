@@ -7,6 +7,7 @@ symtable *env;
 
 void create_symbol_table() {
     symtable *s = (symtable *)malloc(sizeof(symtable));
+    memset(s, 0, sizeof(symtable));
     s->prev = env;
     env = s;
 }
@@ -49,14 +50,22 @@ void hash_input(token *t, enum id_type type) {
 }
 
 enum id_type hash_search(token *t) {
+    symbol *s = symbol_search(t);
+    if(s == NULL)
+        return id_err;
+    else
+        return s->type;
+}
+
+symbol *symbol_search(token *t) {
     int hash = hashcode(t);
     while(env->table[hash] != NULL) {
         if(strcmp(env->table[hash]->token->value, t->value) == 0) {
-            return env->table[hash]->type;
+            return env->table[hash];
         } else {
             hash++;
         }
     }
-    return id_err;
-}
+    return NULL;
 
+}

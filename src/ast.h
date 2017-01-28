@@ -39,7 +39,7 @@ typedef struct ast_program {
 
 typedef struct ast_function {
     enum ast_type type;
-    ast_node *ret;
+    enum id_type rettype;
     ast_node *block_seq;
 } ast_function;
 

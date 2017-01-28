@@ -26,5 +26,5 @@ void create_symbol_table();
 void destory_symbol_table();
 void hash_input(token *t, enum id_type type);
 enum id_type hash_search(token *t);
-
+symbol *symbol_search(token *t);
 #endif
