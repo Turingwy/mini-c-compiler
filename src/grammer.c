@@ -6,46 +6,46 @@
 #include "util.h"
 #include "ast.h"
 
-void block();
+ast_node *block();
 void print_tab();
-void if_stmt();
-void rest_if();
-void _block();
-void read_source();
-void init_state_table();
-enum id_type _exp();
-enum id_type _term();
+ast_node *if_stmt();
+ast_node *rest_if();
+ast_node *_block();
+ast_node *read_source();
+ast_node *init_state_table();
+enum id_type _exp(ast_node *left, ast_node **node);
+enum id_type _term(ast_node *left, ast_node **node);
 ast_node *assign_stmt();
 void declaration();
 void declaration_varlist();
 void declarations();
 void e(enum token_type t, char *s);
 void type_error();
-enum id_type expression();
+enum id_type expression(ast_node **node);
 void expect(char *expt, char *got);
-enum id_type factor();
-void function();
+enum id_type factor(ast_node **node);
+ast_node *function();
 void gerror(char *mesg);
 void param();
 void params();
 void params_list();
-void parse_program();
+ast_program *parse_program();
 void rest_params();
 void rest_rparams();
 void rest_varlist();
 void rparams();
 void rparams_list();
-void stmt();
-void stmts();
-enum id_type term();
+ast_node *stmt();
+ast_node *stmts();
+enum id_type term(ast_node **node);
 void dfa();
-void while_stmt();
-enum id_type logical_exp();
-enum id_type and_exp();
-enum id_type _logical_exp();
-enum id_type comparision_exp();
-enum id_type _and_exp();
-void rest_factor();
+ast_node *while_stmt();
+enum id_type logical_exp(ast_node **node);
+enum id_type and_exp(ast_node **node);
+enum id_type _logical_exp(ast_node *left, ast_node **node);
+enum id_type comparision_exp(ast_node **node);
+enum id_type _and_exp(ast_node *left, ast_node **node);
+void rest_factor(ast_id *id, ast_node **node);
 
 void gerror(char *mesg) {
     puts(mesg);
@@ -280,6 +280,7 @@ ast_node *stmt() {
           e(semi, ";");
           return node;
       }
+    return NULL;
 }
 
 void type_error() {
@@ -298,8 +299,9 @@ ast_node *assign_stmt() {
     if(id->id_symbol == NULL)
        type_error(); 
     move_token();
-    if(logical_exp(&(syn->exp)) > id->id_symbol->type)
+    if(logical_exp(((ast_node **)(&(syn->exp)))) > id->id_symbol->type)
         type_error();
+    return (ast_node *)syn;
 }
 
 enum id_type arith_type(enum id_type left_type, enum id_type right_type) {
@@ -319,14 +321,14 @@ enum id_type arith_type(enum id_type left_type, enum id_type right_type) {
 
 
 enum id_type expression(ast_node **node) {
-    ast_exp *left = NULL;
+    ast_node *left = NULL;
     enum id_type left_type = term(&left);
     enum id_type right_type = _exp(left, node);
     return arith_type(left_type, right_type);
 }
 
 enum id_type term(ast_node **node) {
-    ast_exp *left = NULL;
+    ast_node *left = NULL;
     enum id_type left_type = factor(&left);
     enum id_type right_type = _term(left, node);
     return arith_type(left_type, right_type);
@@ -400,6 +402,7 @@ enum id_type factor(ast_node **node) {
       } else {
           expect("factor", look_token()->value);
       }
+    return id_nul;
 }
 
 void rest_factor(ast_id *id, ast_node **node) {
@@ -463,7 +466,8 @@ void rparams() {
 }
 
 void rparams_list() {
-    expression();
+    ast_node *node = NULL;
+    expression(&node);
     rest_rparams();
 }
 
@@ -474,45 +478,55 @@ void rest_rparams() {
       }
 }
 
-void if_stmt() {
+ast_node *if_stmt() {
     token *t = look_token();
 
     if (strcmp(t->value, "if") == 0) {
+          ast_if *if_node = (ast_if *)malloc(sizeof(ast_if));
+          if_node->type = ast_type_if;
           move_token();
           e(lp, "(");
-          if(logical_exp() == id_nul)
+          if(logical_exp(&(if_node->exp)) == id_nul)
               type_error();
           e(rp, ")");
           if(look_token()->type == lb) {
-            block();
+            if_node->seq = block();
           } else {
               create_symbol_table();
-              stmt();
+              if_node->seq = stmt();
               destory_symbol_table();
           }
-          rest_if();
+          if_node->else_seq = rest_if();
+
+          return (ast_node *)if_node;
       }
+    return NULL;
 }
 
-void rest_if() {
+ast_node *rest_if() {
     token *t = look_token();
 
     if (strcmp(t->value, "else") == 0) {
           move_token();
-          stmt();
+          return stmt();
       }
+    return NULL;
 }
 
-void while_stmt() {
+ast_node *while_stmt() {
     token *t = look_token();
-
+    
     if (strcmp(t->value, "while") == 0) {
+          ast_while *while_node = (ast_while *)malloc(sizeof(ast_while));
+          while_node->type = ast_type_while;
           move_token();
           e(lp, "(");
-          logical_exp();
+          logical_exp(&(while_node->exp));
           e(rp, ")");
-          stmt();
+          while_node->loop_seq = stmt();
+          return (ast_node *)while_node;
       }
+    return NULL;
 }
 
 enum id_type comparision_exp(ast_node **node) {
@@ -547,8 +561,10 @@ enum id_type comparision_exp(ast_node **node) {
                     case nequal:
                         cprs_exp->type = ast_type_nequal;
                         break;
+                    default:
+                        break;
                 }
-                *node = cprs_exp;
+                *node = (ast_node *)cprs_exp;
                 return rettype;
             }
       }
@@ -604,6 +620,6 @@ int main(int argc, char **argv) {
     init_state_table();
     read_source(argv[1]);
     dfa();
-    parse_program();
+    ast_program *ast_tree = parse_program();
     puts("success");
 }
