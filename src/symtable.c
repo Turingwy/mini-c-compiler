@@ -14,9 +14,6 @@ void create_symbol_table() {
 
 void destory_symbol_table() {
     symtable *s = env->prev;
-    for(int i = 0; i < env->length; i++) {
-        free(env->table[i]);
-    }
     free(env);
     env = s;
 }
@@ -43,7 +40,7 @@ void linear_probe(symbol *symbol, int hash) {
 
 void hash_input(token *t, enum id_type type) {
     symbol *sb = (symbol *)malloc(sizeof(symbol));
-
+    sb->var_name[0] = '\0';
     sb->type = type;
     sb->token = t;
     linear_probe(sb, hashcode(t)); 
@@ -59,13 +56,39 @@ enum id_type hash_search(token *t) {
 
 symbol *symbol_search(token *t) {
     int hash = hashcode(t);
-    while(env->table[hash] != NULL) {
-        if(strcmp(env->table[hash]->token->value, t->value) == 0) {
-            return env->table[hash];
-        } else {
-            hash++;
+    for(symtable *current = env; current != NULL; current = current->prev) { 
+        while(current->table[hash] != NULL) {
+            if(strcmp(current->table[hash]->token->value, t->value) == 0) {
+                return current->table[hash];
+            } else {
+                hash++;
+            }
         }
     }
     return NULL;
 
 }
+
+symbol *symbol_shallow_search(token *t) {
+    int hash = hashcode(t);
+    symtable *current = env;
+    while(current->table[hash] != NULL) {
+            if(strcmp(current->table[hash]->token->value, t->value) == 0) {
+                return current->table[hash];
+            } else {
+                hash++;
+            }
+        }
+    return NULL;
+}
+
+enum id_type hash_shallow_search(token *t) {
+    symbol *s = symbol_shallow_search(t);
+    if(s == NULL)
+        return id_err;
+    else
+        return s->type;
+}
+
+
+

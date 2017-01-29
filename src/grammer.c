@@ -123,7 +123,7 @@ void declaration_varlist(enum id_type type) {
 
     if (token->type != identifier)
         expect("identifier", token->value);
-    if(hash_search(token) != id_err) 
+    if(hash_shallow_search(token) != id_err) 
         type_error();
     hash_input(token, type);
     move_token();
@@ -140,7 +140,7 @@ void rest_varlist(enum id_type type) {
     token = look_token();
     if (token->type != identifier)
         expect("identifier", token->value);
-    if(hash_search(token) != id_err) 
+    if(hash_shallow_search(token) != id_err) 
         type_error();
     hash_input(token, type);
     move_token();
@@ -621,5 +621,6 @@ int main(int argc, char **argv) {
     read_source(argv[1]);
     dfa();
     ast_program *ast_tree = parse_program();
+    translate_to_3addr((ast_node *)ast_tree);
     puts("success");
 }

@@ -1,3 +1,7 @@
+#ifndef _AST_H_
+#define _AST_H_
+
+
 #include "token.h"
 #include "symbol.h"
 
@@ -31,6 +35,11 @@ typedef struct ast_node {
     enum ast_type type;
 
 } ast_node;
+
+typedef struct ast_node_var {
+   enum ast_type type;
+   char var_name[16];
+} ast_node_var;
 
 typedef struct ast_program {
     enum ast_type type;
@@ -70,34 +79,31 @@ typedef struct ast_assign {
 
 typedef struct ast_exp {
     enum ast_type type;
+    char var_name[16];
     ast_node *left;
     ast_node *right;
 } ast_exp;
 
 typedef struct ast_num {
     enum ast_type type;
+    char var_name[16];
     char value[16];
 } ast_num;
 
 typedef struct ast_id {
     enum ast_type type;
+//    char var_name[16];
     symbol *id_symbol;
 } ast_id;
 
 typedef struct ast_self_op {
     enum ast_type type;
+    char var_name[16];
     int first;
     ast_id *id;
 } ast_self_op;
 
+void translate_to_3addr(ast_node *);
 
- 
-
-
-
-
-
-
-
-
+#endif
 

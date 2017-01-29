@@ -11,6 +11,7 @@ enum id_type {
 
 typedef struct symbol {
     token *token;
+    char var_name[16];
     enum id_type type;
 } symbol;
 
@@ -27,4 +28,6 @@ void destory_symbol_table();
 void hash_input(token *t, enum id_type type);
 enum id_type hash_search(token *t);
 symbol *symbol_search(token *t);
+enum id_type hash_shallow_search(token *t);
+symbol *symbol_shallow_search(token *t);
 #endif
